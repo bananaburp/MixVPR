@@ -1,0 +1,15 @@
+{
+  "train_csvs": [
+    "/Volumes/T9/DevSpace/Github/hilti-trimble-slam-challenge-2026/challenge_tools_ros/vpr/data/floor_1_2025-05-05_run_1/eval/aligned_frames_cam0.csv"
+  ],
+  "held_out_csv": null,
+  "grid_m": 1.0,
+  "img_per_place": 4,
+  "batch_size": 8,
+  "max_epochs": 1,
+  "lr": 0.0002,
+  "best_checkpoint": "",
+  "last_checkpoint": "/Volumes/T9/DevSpace/Github/MixVPR/LOGS/smoke_test_v3/last.ckpt",
+  "elapsed_sec": 20.23149299621582,
+  "smoke": true
+}

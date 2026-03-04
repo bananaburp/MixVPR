@@ -1,0 +1,28 @@
+agg_arch: MixVPR
+agg_config:
+  in_channels: 1024
+  in_h: 20
+  in_w: 20
+  mix_depth: 4
+  mlp_ratio: 1
+  out_channels: 1024
+  out_rows: 4
+backbone_arch: resnet50
+faiss_gpu: false
+layers_to_crop:
+- 4
+layers_to_freeze: 2
+loss_name: MultiSimilarityLoss
+lr: 0.0002
+lr_mult: 0.3
+milestones:
+- 10
+- 20
+- 30
+miner_margin: 0.1
+miner_name: MultiSimilarityMiner
+momentum: 0.9
+optimizer: adamw
+pretrained: false
+warmpup_steps: 200
+weight_decay: 0.001
