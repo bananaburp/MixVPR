@@ -48,6 +48,26 @@ python3 src/train_hilti.py \
     --lr 2e-4 \
     --batch_size 16 \
     --num_workers 4
+    
+NEPTUNE:
+
+python3 src/train_hilti.py \
+    --train_csvs \
+        hilti_data/vpr/data/floor_2_2025-05-05_run_1/eval/aligned_frames_cam0.csv \
+        hilti_data/vpr/data/floor_2_2025-05-05_run_1/eval/aligned_frames_cam1.csv \
+        hilti_data/vpr/data/floor_2_2025-10-28_run_1/eval/aligned_frames_cam0.csv \
+        hilti_data/vpr/data/floor_2_2025-10-28_run_1/eval/aligned_frames_cam1.csv \
+        hilti_data/vpr/data/floor_2_2025-10-28_run_2/eval/aligned_frames_cam0.csv \
+        hilti_data/vpr/data/floor_2_2025-10-28_run_2/eval/aligned_frames_cam1.csv \
+        hilti_data/vpr/data/floor_UG1_2025-10-16_run_1/eval/aligned_frames_cam0.csv \
+        hilti_data/vpr/data/floor_UG1_2025-10-16_run_1/eval/aligned_frames_cam1.csv \
+    --ckpt "LOGS/resnet50_MixVPR_4096_channels(1024)_rows(4).ckpt" \
+    --output_dir LOGS/hilti_finetune/fold_floor1 \
+    --max_epochs 2 \
+    --warmup_steps 50 \
+    --lr 2e-4 \
+    --batch_size 16 \
+    --num_workers 4
 """
 
 from __future__ import annotations

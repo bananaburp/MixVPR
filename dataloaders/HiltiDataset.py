@@ -240,12 +240,19 @@ class HiltiDataset(Dataset):
                 )
             df["run_id"] = run_id
 
-            # Resolve relative image paths relative to CSV directory
+            # Resolve relative image paths.
+            # Paths in the CSV may be relative to CWD (repo root) or to the
+            # CSV's own directory.  Try CWD-relative first (most common),
+            # fall back to csv_dir-relative.
             csv_dir = path.parent
-            df["image_path"] = df["image_path"].apply(
-                lambda p: str(p) if Path(p).is_absolute()
-                          else str(csv_dir / p)
-            )
+            def _resolve_path(p: str) -> str:
+                if Path(p).is_absolute():
+                    return str(p)
+                cwd_rel = Path(p)          # relative to CWD
+                if cwd_rel.exists():
+                    return str(cwd_rel)
+                return str(csv_dir / p)    # fall back to CSV-directory-relative
+            df["image_path"] = df["image_path"].apply(_resolve_path)
 
             # Remap container/Docker paths that don't exist locally
             first_path = df["image_path"].iloc[0] if len(df) > 0 else ""
@@ -264,6 +271,13 @@ class HiltiDataset(Dataset):
                 )
             df = df[exists_mask].reset_index(drop=True)
 
+            if len(df) == 0:
+                warnings.warn(
+                    f"{path.name}: no valid image paths remain after filtering "
+                    "— skipping this CSV entirely."
+                )
+                continue
+
             # Grid-bin in XY to get a unique integer per cell per run.
             # We encode as: run_id * LARGE_PRIME + (binned_x * STRIDE + binned_y)
             # using a large-enough stride so labels stay unique across runs.
@@ -280,6 +294,11 @@ class HiltiDataset(Dataset):
 
             dfs.append(df)
 
+        if not dfs:
+            raise RuntimeError(
+                "No valid images found in any of the provided CSV files. "
+                "Check that image paths in the CSVs resolve to existing files."
+            )
         return pd.concat(dfs, ignore_index=True)
 
     @staticmethod
