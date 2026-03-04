@@ -21,13 +21,12 @@ class BaseDataset(data.Dataset):
         super().__init__()
         self.img_path = img_path
 
-        # path to images
-        if 'query' in self.img_path:
-            img_path_list = glob.glob(self.img_path + '/**/**/*.jpg', recursive=True)
-            self.img_path_list = img_path_list
-        elif 'db' in self.img_path:
-            img_path_list = glob.glob(self.img_path + '/**/**/*.jpg', recursive=True)
-            # sort images for db
+        # path to images — use os.path.join + single ** to avoid double-counting
+        # that occurs with the pattern '/**/**/*.jpg' and recursive=True.
+        # Both db and query are sorted by integer filename (= nanosecond timestamp)
+        # so that their positional indices match gt_positives.npy.
+        if 'query' in self.img_path or 'db' in self.img_path:
+            img_path_list = glob.glob(os.path.join(self.img_path, '**', '*.jpg'), recursive=True)
             self.img_path_list = sorted(img_path_list, key=lambda x: int(os.path.splitext(os.path.basename(x))[0]))
         else:
             raise ValueError('img_path should be either query or db')
@@ -42,26 +41,30 @@ class BaseDataset(data.Dataset):
 
 
 class InferencePipeline:
-    def __init__(self, model, dataset, feature_dim, batch_size=4, num_workers=4, device='cuda'):
+    def __init__(self, model, dataset, feature_dim, batch_size=4, num_workers=4, device='cuda', no_cache=False):
         self.model = model
         self.dataset = dataset
         self.feature_dim = feature_dim
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.device = device
+        self.no_cache = no_cache
 
-        self.dataloader = data.DataLoader(self.dataset,
-                                          batch_size=self.batch_size,
-                                          shuffle=False,
-                                          num_workers=self.num_workers,
-                                          pin_memory=True,
-                                          drop_last=False)
+        self.dataloader = data.DataLoader( self.dataset,
+                                            batch_size=self.batch_size,
+                                            shuffle=False,
+                                            num_workers=self.num_workers,
+                                            pin_memory=True,
+                                            drop_last=False)
 
     def run(self, split: str = 'db') -> np.ndarray:
+        # make cache key dataset-specific to avoid stale cross-dataset cache
+        dataset_tag = os.path.basename(os.path.dirname(self.dataset.img_path.rstrip('/')))
+        cache_path = f'./LOGS/global_descriptors_{dataset_tag}_{split}.npy'
 
-        if os.path.exists(f'./LOGS/global_descriptors_{split}.npy'):
-            print(f"Skipping {split} features extraction, loading from cache")
-            return np.load(f'./LOGS/global_descriptors_{split}.npy')
+        if os.path.exists(cache_path) and not self.no_cache:
+            print(f"Skipping {split} features extraction, loading from cache ({cache_path})")
+            return np.load(cache_path)
 
         self.model.to(self.device)
         with torch.no_grad():
@@ -78,7 +81,7 @@ class InferencePipeline:
                 global_descriptors[np.array(indices), :] = descriptors
 
         # save global descriptors
-        np.save(f'./LOGS/global_descriptors_{split}.npy', global_descriptors)
+        np.save(cache_path, global_descriptors)
         return global_descriptors
 
 
@@ -90,7 +93,7 @@ def load_image(path):
         tvf.Resize((320, 320), interpolation=tvf.InterpolationMode.BICUBIC),
         tvf.ToTensor(),
         tvf.Normalize([0.485, 0.456, 0.406],
-                      [0.229, 0.224, 0.225])
+                        [0.229, 0.224, 0.225])
     ])
 
     # apply transforms
@@ -101,16 +104,16 @@ def load_image(path):
 def load_model(ckpt_path):
     # Note that images must be resized to 320x320
     model = VPRModel(backbone_arch='resnet50',
-                     layers_to_crop=[4],
-                     agg_arch='MixVPR',
-                     agg_config={'in_channels': 1024,
-                                 'in_h': 20,
-                                 'in_w': 20,
-                                 'out_channels': 1024,
-                                 'mix_depth': 4,
-                                 'mlp_ratio': 1,
-                                 'out_rows': 4},
-                     )
+                        layers_to_crop=[4],
+                        agg_arch='MixVPR',
+                        agg_config={'in_channels': 1024,
+                                    'in_h': 20,
+                                    'in_w': 20,
+                                    'out_channels': 1024,
+                                    'mix_depth': 4,
+                                    'mlp_ratio': 1,
+                                    'out_rows': 4},
+                        )
 
     state_dict = torch.load(ckpt_path)
     model.load_state_dict(state_dict)
@@ -133,9 +136,9 @@ def calculate_top_k(q_matrix: np.ndarray,
 
 
 def record_matches(top_k_matches: np.ndarray,
-                   query_dataset: BaseDataset,
-                   database_dataset: BaseDataset,
-                   out_file: str = 'record.txt') -> None:
+                    query_dataset: BaseDataset,
+                    database_dataset: BaseDataset,
+                    out_file: str = 'record.txt') -> None:
     with open(f'{out_file}', 'a') as f:
         for query_index, db_indices in enumerate(tqdm(top_k_matches, ncols=100, desc='Recording matches')):
             pred_query_path = query_dataset.img_path_list[query_index]
@@ -145,10 +148,10 @@ def record_matches(top_k_matches: np.ndarray,
 
 
 def visualize(top_k_matches: np.ndarray,
-              query_dataset: BaseDataset,
-              database_dataset: BaseDataset,
-              visual_dir: str = './LOGS/visualize',
-              img_resize_size: Tuple = (320, 320)) -> None:
+                query_dataset: BaseDataset,
+                database_dataset: BaseDataset,
+                visual_dir: str = './LOGS/visualize',
+                img_resize_size: Tuple = (320, 320)) -> None:
     if not os.path.exists(visual_dir):
         os.makedirs(visual_dir)
     for q_idx, db_idx in enumerate(tqdm(top_k_matches, ncols=100, desc='Visualizing matches')):

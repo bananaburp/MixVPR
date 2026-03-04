@@ -10,11 +10,11 @@ from torch.utils.data import Dataset
 DATASET_ROOT = '../datasets/msls_val/'
 
 path_obj = Path(DATASET_ROOT)
-if not path_obj.exists():
-    raise Exception('Please make sure the path to mapillary_sls dataset is correct')
+# if not path_obj.exists():
+#     raise Exception('Please make sure the path to mapillary_sls dataset is correct')
 
-if not path_obj.joinpath('train_val'):
-    raise Exception(f'Please make sure the directory train_val from mapillary_sls dataset is situated in the directory {DATASET_ROOT}')
+# if not path_obj.joinpath('train_val'):
+#     raise Exception(f'Please make sure the directory train_val from mapillary_sls dataset is situated in the directory {DATASET_ROOT}')
 
 class MSLS(Dataset):
     def __init__(self, input_transform = None):

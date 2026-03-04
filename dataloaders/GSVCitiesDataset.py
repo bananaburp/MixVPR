@@ -15,9 +15,9 @@ default_transform = T.Compose([
 # NOTE: Hard coded path to dataset folder 
 BASE_PATH = '../datasets/gsv_cities/'
 
-if not Path(BASE_PATH).exists():
-    raise FileNotFoundError(
-        'BASE_PATH is hardcoded, please adjust to point to gsv_cities')
+# if not Path(BASE_PATH).exists():
+#     raise FileNotFoundError(
+#         'BASE_PATH is hardcoded, please adjust to point to gsv_cities')
 
 class GSVCitiesDataset(Dataset):
     def __init__(self,
@@ -29,6 +29,10 @@ class GSVCitiesDataset(Dataset):
                  base_path=BASE_PATH
                  ):
         super(GSVCitiesDataset, self).__init__()
+        if not Path(base_path).exists():
+            raise FileNotFoundError(
+                f'GSV-Cities dataset not found at "{base_path}". '
+                'Please download it or adjust base_path.')
         self.base_path = base_path
         self.cities = cities
 

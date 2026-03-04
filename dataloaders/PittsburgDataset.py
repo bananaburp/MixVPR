@@ -11,9 +11,9 @@ from sklearn.neighbors import NearestNeighbors
 
 root_dir = '../datasets/Pittsburgh/'
 
-if not exists(root_dir):
-    raise FileNotFoundError(
-        'root_dir is hardcoded, please adjust to point to Pittsburgh dataset')
+# if not exists(root_dir):
+#     raise FileNotFoundError(
+#         'root_dir is hardcoded, please adjust to point to Pittsburgh dataset')
 
 struct_dir = join(root_dir, 'datasets/')
 queries_dir = join(root_dir, 'queries_real')
