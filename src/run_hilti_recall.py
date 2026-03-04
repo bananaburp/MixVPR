@@ -7,13 +7,13 @@ from main import VPRModel
 from demo import BaseDataset, InferencePipeline
 from utils.validation import get_validation_recalls
 
-# --------------------------------------------------------------
-# python src/run_hilti_recall.py \
-#     --eval_root "/Volumes/T9/DevSpace/Github/hilti-trimble-slam-challenge-2026/challenge_tools_ros/vpr/eval/floor_1_2025-05-05_run_1_cam0" \
-#     --ckpt "./LOGS/resnet50_MixVPR_4096_channels(1024)_rows(4).ckpt" \
-#     --device mps \
-#     --batch 16
-# --------------------------------------------------------------
+'''
+python src/run_hilti_recall.py \
+    --eval_root "/Volumes/T9/DevSpace/Github/hilti-trimble-slam-challenge-2026/challenge_tools_ros/vpr/eval/floor_1_2025-05-05_run_1_cam0" \
+    --ckpt "./LOGS/resnet50_MixVPR_4096_channels(1024)_rows(4).ckpt" \
+    --device mps \
+    --batch 16
+'''
 
 def main():
     ap = argparse.ArgumentParser()

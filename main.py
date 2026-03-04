@@ -67,7 +67,8 @@ class VPRModel(pl.LightningModule):
         
         self.loss_fn = utils.get_loss(loss_name)
         self.miner = utils.get_miner(miner_name, miner_margin)
-        self.batch_acc = [] # we will keep track of the % of trivial pairs/triplets at the loss level 
+        self.batch_acc = [] # we will keep track of the % of trivial pairs/triplets at the loss level
+        self._val_outputs: list = []  # accumulate validation_step outputs (PL 2.x)
 
         self.faiss_gpu = faiss_gpu
         
@@ -163,30 +164,32 @@ class VPRModel(pl.LightningModule):
         self.log('loss', loss.item(), logger=True)
         return {'loss': loss}
     
-    # This is called at the end of eatch training epoch
-    def training_epoch_end(self, training_step_outputs):
+    # This is called at the end of each training epoch
+    def on_train_epoch_end(self):
         # we empty the batch_acc list for next epoch
         self.batch_acc = []
 
     # For validation, we will also iterate step by step over the validation set
     # this is the way Pytorch Lghtning is made. All about modularity, folks.
-    def validation_step(self, batch, batch_idx, dataloader_idx=None):
+    def validation_step(self, batch, batch_idx, dataloader_idx=0):
         places, _ = batch
         # calculate descriptors
-        descriptors = self(places)
-        return descriptors.detach().cpu()
+        descriptors = self(places).detach().cpu()
+        # PL 2.x ignores return values — accumulate manually
+        while len(self._val_outputs) <= dataloader_idx:
+            self._val_outputs.append([])
+        self._val_outputs[dataloader_idx].append(descriptors)
+        return descriptors
     
-    def validation_epoch_end(self, val_step_outputs):
+    def on_validation_epoch_end(self):
         """this return descriptors in their order
-        depending on how the validation dataset is implemented 
+        depending on how the validation dataset is implemented
         for this project (MSLS val, Pittburg val), it is always references then queries
         [R1, R2, ..., Rn, Q1, Q2, ...]
         """
+        val_step_outputs = self._val_outputs
+        self._val_outputs = []  # reset for next epoch
         dm = self.trainer.datamodule
-        # The following line is a hack: if we have only one validation set, then
-        # we need to put the outputs in a list (Pytorch Lightning does not do it presently)
-        if len(dm.val_datasets)==1: # we need to put the outputs in a list
-            val_step_outputs = [val_step_outputs]
         
         for i, (val_set_name, val_dataset) in enumerate(zip(dm.val_set_names, dm.val_datasets)):
             feats = torch.concat(val_step_outputs[i], dim=0)
