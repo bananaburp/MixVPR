@@ -3,3 +3,9 @@ __pycache__
 lib/
 
 .venv/
+
+hilti_data/
+
+.jpg
+.png
+.jpeg

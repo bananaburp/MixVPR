@@ -31,7 +31,7 @@ python src/train_hilti.py \
 
 # Real leave-one-out: train on 4 runs, held-out = floor_2_run_1
 
-python src/train_hilti.py \
+python3 src/train_hilti.py \
     --train_csvs \
         /Volumes/T9/DevSpace/Github/hilti-trimble-slam-challenge-2026/challenge_tools_ros/vpr/data/floor_2_2025-05-05_run_1/eval/aligned_frames_cam0.csv \
         /Volumes/T9/DevSpace/Github/hilti-trimble-slam-challenge-2026/challenge_tools_ros/vpr/data/floor_2_2025-05-05_run_1/eval/aligned_frames_cam1.csv \
@@ -359,6 +359,29 @@ def main():
 
     min_ipp = args.min_img_per_place if args.min_img_per_place else args.img_per_place
 
+    # ── Detect accelerator (done early so faiss_gpu can be set correctly) ───
+    _torch_mps = torch.backends.mps.is_available() and torch.backends.mps.is_built()
+
+    if _torch_mps:
+        try:
+            import lightning_fabric.accelerators.mps as _fab_mps
+            _fab_mps.MPSAccelerator.is_available = staticmethod(lambda: True)
+            print("[train_hilti] Patched PL MPSAccelerator.is_available → True "
+                  "(platform.processor() Rosetta workaround).")
+        except Exception as _patch_err:
+            print(f"[train_hilti] Warning: could not patch PL MPS check: {_patch_err}")
+        accelerator, devices = "mps", 1
+        faiss_gpu = False
+        print("[train_hilti] Using MPS (Apple Silicon) accelerator.")
+    elif torch.cuda.is_available():
+        accelerator, devices = "gpu", [0]
+        faiss_gpu = True
+        print("[train_hilti] Using CUDA GPU accelerator.")
+    else:
+        accelerator, devices = "cpu", 1
+        faiss_gpu = False
+        print("[train_hilti] WARNING: No GPU/MPS found — training on CPU (very slow).")
+
     # ── DataModule ───────────────────────────────────────────────────────────
     datamodule = HiltiDataModule(
         train_csv_files=args.train_csvs,
@@ -401,7 +424,7 @@ def main():
         loss_name   = "MultiSimilarityLoss",
         miner_name  = "MultiSimilarityMiner",
         miner_margin = 0.1,
-        faiss_gpu    = False,
+        faiss_gpu    = faiss_gpu,
     )
 
     # Load pretrained weights
@@ -433,38 +456,13 @@ def main():
     lr_monitor   = LearningRateMonitor(logging_interval="step")
     loss_plotter = LossCurvePlotter(output_dir=str(output_dir))
 
-    # ── Detect accelerator ───────────────────────────────────────────────────
-    # torch.backends.mps.is_available() is the ground truth on Apple Silicon.
-    # PL 2.6+ additionally checks platform.processor() which returns 'i386'
-    # when the Python interpreter runs under Rosetta, causing a false negative.
-    # We patch the lru_cache'd PL check so the Trainer accepts "mps".
-    _torch_mps = torch.backends.mps.is_available() and torch.backends.mps.is_built()
-
-    if _torch_mps:
-        try:
-            import lightning_fabric.accelerators.mps as _fab_mps
-            # Replace the cached staticmethod with an unconditional True lambda.
-            _fab_mps.MPSAccelerator.is_available = staticmethod(lambda: True)
-            print("[train_hilti] Patched PL MPSAccelerator.is_available → True "
-                  "(platform.processor() Rosetta workaround).")
-        except Exception as _patch_err:
-            print(f"[train_hilti] Warning: could not patch PL MPS check: {_patch_err}")
-        accelerator, devices = "mps", 1
-        print("[train_hilti] Using MPS (Apple Silicon) accelerator.")
-    elif torch.cuda.is_available():
-        accelerator, devices = "gpu", [0]
-        print("[train_hilti] Using CUDA GPU accelerator.")
-    else:
-        accelerator, devices = "cpu", 1
-        print("[train_hilti] WARNING: No GPU/MPS found — training on CPU (very slow).")
-
     # ── Trainer ──────────────────────────────────────────────────────────────
     trainer = pl.Trainer(
         accelerator=accelerator,
         devices=devices,
         default_root_dir=str(output_dir),
         max_epochs=args.max_epochs,
-        precision=args.precision,            # 32 recommended for MPS stability
+        precision=args.precision,            # 32 safe for MPS; 16 usable on CUDA
         callbacks=[checkpoint_cb, lr_monitor, loss_plotter],
         log_every_n_steps=10,
         num_sanity_val_steps=0,             # no sanity val (no inline val set)
