@@ -573,12 +573,12 @@ def main():
         print(
             "  python src/run_hilti_recall.py \\\n"
             "    --eval_root <your_eval_root_with_db_query_gt> \\\n"
-            f"    --ckpt {last_ckpt} \\\n"
+            f"    --ckpt {best_ckpt} \\\n"
             "    --device mps --no_cache"
         )
         print("="*60)
 
-    return last_ckpt
+    return best_ckpt
 
 
 if __name__ == "__main__":
