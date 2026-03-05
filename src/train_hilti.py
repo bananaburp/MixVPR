@@ -63,10 +63,10 @@ python3 src/train_hilti.py \
         hilti_data/vpr/data/floor_UG1_2025-10-16_run_1/eval/aligned_frames_cam1.csv \
     --ckpt "LOGS/resnet50_MixVPR_4096_channels(1024)_rows(4).ckpt" \
     --output_dir LOGS/hilti_finetune/fold_floor1 \
-    --max_epochs 2 \
+    --max_epochs 20 \
     --warmup_steps 50 \
     --lr 2e-4 \
-    --batch_size 16 \
+    --batch_size 8 \
     --num_workers 4
 """
 

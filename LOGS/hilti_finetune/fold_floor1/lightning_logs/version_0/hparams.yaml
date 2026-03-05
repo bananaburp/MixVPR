@@ -8,7 +8,7 @@ agg_config:
   out_channels: 1024
   out_rows: 4
 backbone_arch: resnet50
-faiss_gpu: false
+faiss_gpu: true
 layers_to_crop:
 - 4
 layers_to_freeze: 2
