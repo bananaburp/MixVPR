@@ -62,8 +62,8 @@ python3 src/train_hilti.py \
         hilti_data/vpr/data/floor_UG1_2025-10-16_run_1/eval/aligned_frames_cam0.csv \
         hilti_data/vpr/data/floor_UG1_2025-10-16_run_1/eval/aligned_frames_cam1.csv \
     --ckpt "LOGS/resnet50_MixVPR_4096_channels(1024)_rows(4).ckpt" \
-    --output_dir LOGS/hilti_finetune/fold_floor1 \
-    --max_epochs 20 \
+    --output_dir LOGS/hilti_finetune/fold_floor1_v2 \
+    --max_epochs 10 \
     --warmup_steps 50 \
     --lr 2e-4 \
     --batch_size 8 \
@@ -90,6 +90,7 @@ from pytorch_lightning.callbacks import Callback, ModelCheckpoint, LearningRateM
 import matplotlib
 matplotlib.use("Agg")  # non-interactive backend — safe on macOS without a display
 import matplotlib.pyplot as plt
+import csv
 
 from main import VPRModel
 from dataloaders.HiltiDataModule import HiltiDataModule
@@ -105,7 +106,9 @@ class LossCurvePlotter(Callback):
     inspect training progress without waiting for it to finish.
 
     Files written:
-      <output_dir>/loss_curve.png   — updated every epoch (overwritten)
+      <output_dir>/loss_curve.png              — updated every epoch (overwritten)
+      <output_dir>/training_steps.csv          — raw step-by-step losses and batch acc
+      <output_dir>/training_epochs.csv         — epoch-level aggregated metrics
 
     WHY collect in on_train_batch_end instead of on_train_epoch_end?
       HiltiVPRModel.on_train_epoch_end fires BEFORE callbacks and clears
@@ -123,15 +126,48 @@ class LossCurvePlotter(Callback):
         self.epochs:       list[int]   = []
         self._step_losses: list[float] = []
         self._step_baccs:  list[float] = []
+        self._global_step = 0
+        
+        # Initialize CSV files
+        self.steps_csv_path  = self.output_dir / "training_steps.csv"
+        self.epochs_csv_path = self.output_dir / "training_epochs.csv"
+        
+        # Create step-level CSV with header
+        with open(self.steps_csv_path, 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(["global_step", "epoch", "loss", "batch_acc"])
+        
+        # Create epoch-level CSV with header
+        with open(self.epochs_csv_path, 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(["epoch", "mean_loss", "mean_batch_acc"])
 
     def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
         # outputs is the dict returned by training_step: {"loss": tensor}
         loss_val = outputs.get("loss") if isinstance(outputs, dict) else None
         if loss_val is not None:
-            self._step_losses.append(float(loss_val))
+            loss_float = float(loss_val)
+            self._step_losses.append(loss_float)
+        else:
+            loss_float = float("nan")
+            
         bacc = trainer.callback_metrics.get("b_acc")
         if bacc is not None:
-            self._step_baccs.append(float(bacc))
+            bacc_float = float(bacc)
+            self._step_baccs.append(bacc_float)
+        else:
+            bacc_float = float("nan")
+        
+        # Write step-level data to CSV
+        with open(self.steps_csv_path, 'a', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                self._global_step,
+                trainer.current_epoch,
+                loss_float,
+                bacc_float
+            ])
+        self._global_step += 1
 
     def on_train_epoch_end(self, trainer, pl_module):
         epoch = trainer.current_epoch
@@ -140,6 +176,12 @@ class LossCurvePlotter(Callback):
         mean_loss = sum(self._step_losses) / len(self._step_losses)
         mean_bacc = (sum(self._step_baccs) / len(self._step_baccs)
                      if self._step_baccs else float("nan"))
+        
+        # Write epoch-level data to CSV
+        with open(self.epochs_csv_path, 'a', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow([epoch, mean_loss, mean_bacc])
+        
         self._step_losses.clear()
         self._step_baccs.clear()
 
@@ -186,6 +228,8 @@ class LossCurvePlotter(Callback):
         plt.close(fig)
         print(f"[LossCurvePlotter] Updated {out}  "
               f"(epoch {self.epochs[-1]}, loss={self.epoch_losses[-1]:.4f})",
+              flush=True)
+        print(f"[LossCurvePlotter] CSV logs: {self.steps_csv_path}, {self.epochs_csv_path}",
               flush=True)
 
 
@@ -471,7 +515,7 @@ def main():
         mode="min",
         save_top_k=3,
         save_weights_only=True,
-        save_last=True,
+        save_last=False,  # Only save when loss improves, don't overwrite last.ckpt every epoch
     )
     lr_monitor   = LearningRateMonitor(logging_interval="step")
     loss_plotter = LossCurvePlotter(output_dir=str(output_dir))
@@ -500,9 +544,7 @@ def main():
 
     # ── Save run metadata ────────────────────────────────────────────────────
     best_ckpt = checkpoint_cb.best_model_path
-    last_ckpt = checkpoint_cb.last_model_path
     print(f"[train_hilti] Best checkpoint : {best_ckpt}")
-    print(f"[train_hilti] Last checkpoint : {last_ckpt}")
 
     meta = {
         "train_csvs":      args.train_csvs,
@@ -513,7 +555,6 @@ def main():
         "max_epochs":      args.max_epochs,
         "lr":              args.lr,
         "best_checkpoint": best_ckpt,
-        "last_checkpoint": last_ckpt,
         "elapsed_sec":     elapsed,
         "smoke":           args.smoke,
     }
@@ -522,6 +563,8 @@ def main():
         json.dump(meta, f, indent=2)
     print(f"[train_hilti] Run metadata saved to {meta_path}")
     print(f"[train_hilti] Loss curve        : {output_dir / 'loss_curve.png'}")
+    print(f"[train_hilti] Step-level CSV    : {output_dir / 'training_steps.csv'}")
+    print(f"[train_hilti] Epoch-level CSV   : {output_dir / 'training_epochs.csv'}")
 
     # ── Post-smoke instructions ───────────────────────────────────────────────
     if args.smoke:
