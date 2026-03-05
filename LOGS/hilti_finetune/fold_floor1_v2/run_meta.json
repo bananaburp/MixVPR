@@ -13,10 +13,9 @@
   "grid_m": 1.0,
   "img_per_place": 4,
   "batch_size": 8,
-  "max_epochs": 10,
+  "max_epochs": 50,
   "lr": 0.0002,
   "best_checkpoint": "",
-  "last_checkpoint": "/home/amadan/repos/MixVPR/LOGS/hilti_finetune/fold_floor1_v2/last.ckpt",
-  "elapsed_sec": 570.4286344051361,
+  "elapsed_sec": 2863.435635328293,
   "smoke": false
 }

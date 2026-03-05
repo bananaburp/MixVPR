@@ -63,7 +63,7 @@ python3 src/train_hilti.py \
         hilti_data/vpr/data/floor_UG1_2025-10-16_run_1/eval/aligned_frames_cam1.csv \
     --ckpt "LOGS/resnet50_MixVPR_4096_channels(1024)_rows(4).ckpt" \
     --output_dir LOGS/hilti_finetune/fold_floor1_v2 \
-    --max_epochs 10 \
+    --max_epochs 50 \
     --warmup_steps 50 \
     --lr 2e-4 \
     --batch_size 8 \
@@ -95,6 +95,89 @@ import csv
 from main import VPRModel
 from dataloaders.HiltiDataModule import HiltiDataModule
 from dataloaders.HiltiDataset import HILTI_EVAL_TRANSFORM
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Checkpoint save logger callback
+# ─────────────────────────────────────────────────────────────────────────────
+
+class CheckpointLogger(Callback):
+    """Logs clear messages about checkpoint saves to help track training progress.
+    
+    Logs:
+      - When a checkpoint is saved (with epoch, metric value, and path)
+      - When an epoch completes but no checkpoint is saved (metric didn't improve)
+      - Summary of top-k checkpoints at any time
+    """
+    
+    def __init__(self):
+        super().__init__()
+        self.last_logged_epoch = -1
+        self.epoch_metric_value = None
+        self.checkpoint_saved_this_epoch = False
+    
+    def on_train_epoch_end(self, trainer, pl_module):
+        """Capture the metric value at epoch end."""
+        self.epoch_metric_value = trainer.callback_metrics.get("epoch_loss")
+        self.checkpoint_saved_this_epoch = False
+        self.last_logged_epoch = trainer.current_epoch
+    
+    def on_save_checkpoint(self, trainer, pl_module, checkpoint):
+        """Log when a checkpoint is being saved."""
+        epoch = trainer.current_epoch
+        metric_val = self.epoch_metric_value
+        
+        # Find the ModelCheckpoint callback to get the filename
+        ckpt_callback = None
+        for cb in trainer.callbacks:
+            if isinstance(cb, ModelCheckpoint):
+                ckpt_callback = cb
+                break
+        
+        if ckpt_callback and metric_val is not None:
+            # Get the actual filename that will be saved
+            filename = ckpt_callback.format_checkpoint_name(
+                {"epoch": epoch, "epoch_loss": float(metric_val)}
+            )
+            filepath = os.path.join(ckpt_callback.dirpath, filename + ".ckpt")
+            
+            print(f"\n{'='*70}")
+            print(f"✓ CHECKPOINT SAVED — Epoch {epoch}")
+            print(f"  Metric (epoch_loss): {metric_val:.6f}")
+            print(f"  Path: {filepath}")
+            print(f"  Reason: Loss improved (top-{ckpt_callback.save_top_k} models)")
+            print(f"{'='*70}\n", flush=True)
+            
+            self.checkpoint_saved_this_epoch = True
+    
+    def on_validation_end(self, trainer, pl_module):
+        """After validation/epoch ends, log if no checkpoint was saved."""
+        # We check at validation_end because on_save_checkpoint fires before this
+        # This ensures we can report "no save" after we know for sure
+        epoch = trainer.current_epoch
+        
+        # Only report once per epoch
+        if epoch == self.last_logged_epoch and not self.checkpoint_saved_this_epoch:
+            metric_val = self.epoch_metric_value
+            if metric_val is not None:
+                # Find best metric to compare
+                ckpt_callback = None
+                for cb in trainer.callbacks:
+                    if isinstance(cb, ModelCheckpoint):
+                        ckpt_callback = cb
+                        break
+                
+                best_so_far = "N/A"
+                if ckpt_callback and hasattr(ckpt_callback, 'best_model_score'):
+                    if ckpt_callback.best_model_score is not None:
+                        best_so_far = f"{float(ckpt_callback.best_model_score):.6f}"
+                
+                print(f"\n{'='*70}")
+                print(f"○ NO CHECKPOINT SAVED — Epoch {epoch}")
+                print(f"  Metric (epoch_loss): {metric_val:.6f}")
+                print(f"  Best so far: {best_so_far}")
+                print(f"  Reason: Loss did not improve")
+                print(f"{'='*70}\n", flush=True)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -510,13 +593,15 @@ def main():
 
     checkpoint_cb = ModelCheckpoint(
         dirpath=str(output_dir),
-        filename="mixvpr_hilti_{epoch:02d}_{epoch_loss:.4f}",
+        filename="epoch{epoch:03d}_loss{epoch_loss:.6f}",  # More digits for better tracking
         monitor="epoch_loss",
         mode="min",
         save_top_k=3,
         save_weights_only=True,
-        save_last=False,  # Only save when loss improves, don't overwrite last.ckpt every epoch
+        save_last=True,  # Always save last.ckpt for progress tracking
+        verbose=True,    # Enable PL's built-in checkpoint logging
     )
+    ckpt_logger  = CheckpointLogger()
     lr_monitor   = LearningRateMonitor(logging_interval="step")
     loss_plotter = LossCurvePlotter(output_dir=str(output_dir))
 
@@ -527,7 +612,7 @@ def main():
         default_root_dir=str(output_dir),
         max_epochs=args.max_epochs,
         precision=args.precision,            # 32 safe for MPS; 16 usable on CUDA
-        callbacks=[checkpoint_cb, lr_monitor, loss_plotter],
+        callbacks=[checkpoint_cb, ckpt_logger, lr_monitor, loss_plotter],
         log_every_n_steps=10,
         num_sanity_val_steps=0,             # no sanity val (no inline val set)
         check_val_every_n_epoch=9999,       # effectively disable inline validation
@@ -544,7 +629,23 @@ def main():
 
     # ── Save run metadata ────────────────────────────────────────────────────
     best_ckpt = checkpoint_cb.best_model_path
-    print(f"[train_hilti] Best checkpoint : {best_ckpt}")
+    last_ckpt = checkpoint_cb.last_model_path
+    
+    print(f"\n{'='*70}")
+    print(f"TRAINING COMPLETE")
+    print(f"{'='*70}")
+    print(f"Best checkpoint : {best_ckpt}")
+    print(f"Last checkpoint : {last_ckpt}")
+    print(f"Elapsed time    : {elapsed/60:.1f} minutes")
+    
+    # List all saved checkpoints
+    saved_ckpts = sorted(output_dir.glob("epoch*.ckpt"))
+    if saved_ckpts:
+        print(f"\nAll saved checkpoints ({len(saved_ckpts)}):")
+        for ckpt in saved_ckpts:
+            size_mb = ckpt.stat().st_size / (1024*1024)
+            print(f"  - {ckpt.name} ({size_mb:.1f} MB)")
+    print(f"{'='*70}\n")
 
     meta = {
         "train_csvs":      args.train_csvs,
