@@ -22,7 +22,7 @@ def _dbg(msg: str):
 python src/run_hilti_recall_fixed.py \
     --eval_root "/Volumes/T9/DevSpace/Github/hilti-trimble-slam-challenge-2026/challenge_tools_ros/vpr/data/floor_1_2025-05-05_run_1/eval/mixvpr_evalset" \
     --cam 0 \
-    --ckpt ".LOGS/hilti_finetune/fold_floor1/last.ckpt" \
+    --ckpt "LOGS/hilti_finetune/fold_floor1_v2/last.ckpt" \
     --device mps \
     --batch 16 \
     --hilti \
